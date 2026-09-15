@@ -206,13 +206,15 @@ def build_arrange_keyboard(user_id):
         kb.append(row)
         
     # Control buttons
-    control_row = []
-    control_row.append(InlineKeyboardButton(text="🔄 Reset Semua", callback_data="arrange_reset"))
+    reset_row = [
+        InlineKeyboardButton(text="🔄 Reset Semua", callback_data="arrange_reset"),
+        InlineKeyboardButton(text=f"🔄 Reset {active_row.capitalize()}", callback_data="arrange_reset_row")
+    ]
+    kb.append(reset_row)
     
     if len(placed) == 13:
-        control_row.append(InlineKeyboardButton(text="✅ Kunci Susunan", callback_data="arrange_confirm"))
+        kb.append([InlineKeyboardButton(text="✅ Kunci Susunan", callback_data="arrange_confirm")])
         
-    kb.append(control_row)
     return InlineKeyboardMarkup(inline_keyboard=kb)
 
 @router.message(Command("capsun"))
@@ -447,7 +449,15 @@ async def cb_arrange(query: CallbackQuery):
         session["active_row"] = "bawah"
         
         await query.message.edit_text(generate_arrange_text(session), reply_markup=build_arrange_keyboard(user_id))
-        await query.answer("Direset!")
+        await query.answer("Semua baris direset!")
+        return
+        
+    if data == "arrange_reset_row":
+        active = session["active_row"]
+        session[active] = []
+        
+        await query.message.edit_text(generate_arrange_text(session), reply_markup=build_arrange_keyboard(user_id))
+        await query.answer(f"Baris {active.capitalize()} direset!")
         return
         
     if data == "arrange_confirm":
