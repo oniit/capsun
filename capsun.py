@@ -411,6 +411,8 @@ async def cmd_finish(msg: Message):
     player["finished"] = True
     await msg.reply("✅ Susunan berhasil dikunci! Menunggu pemain lain...")
     
+    await bot.send_message(active_chat_id, f"✅ <b>{player['name']}</b> telah menyusun kartunya.")
+    
     all_finished = all(p.get("finished", False) for p in game["players"].values())
     if all_finished:
         await calculate_and_announce_results(active_chat_id)
@@ -491,6 +493,8 @@ async def cb_arrange(query: CallbackQuery):
         await query.answer("Susunan dikunci!")
         
         del arrange_sessions[user_id]
+        
+        await bot.send_message(chat_id, f"✅ <b>{player['name']}</b> telah menyusun kartunya.")
         
         # Check if all finished
         all_finished = all(p.get("finished", False) for p in game["players"].values())
@@ -647,15 +651,19 @@ async def calculate_and_announce_results(chat_id):
             
         result_text += f"👤 <b>{p['name']}</b>{pao_text}: {score} poin{extra_str}\n"
         
+        arr = p["arranged"]
+        front_str = " ".join([str(c) for c in arr["front"]])
+        middle_str = " ".join([str(c) for c in arr["middle"]])
+        back_str = " ".join([str(c) for c in arr["back"]])
+        
         if not p["pao"]:
-            arr = p["arranged"]
-            front_str = " ".join([str(c) for c in arr["front"]])
-            middle_str = " ".join([str(c) for c in arr["middle"]])
-            back_str = " ".join([str(c) for c in arr["back"]])
-            
             result_text += f"  A: {front_str} ({get_hand_name(arr['front_eval'])}) [<b>{bd['atas']:+}</b>]\n"
             result_text += f"  T: {middle_str} ({get_hand_name(arr['middle_eval'])}) [<b>{bd['tengah']:+}</b>]\n"
             result_text += f"  B: {back_str} ({get_hand_name(arr['back_eval'])}) [<b>{bd['bawah']:+}</b>]\n"
+        else:
+            result_text += f"  A: {front_str} ({get_hand_name(arr['front_eval'])})\n"
+            result_text += f"  T: {middle_str} ({get_hand_name(arr['middle_eval'])})\n"
+            result_text += f"  B: {back_str} ({get_hand_name(arr['back_eval'])})\n"
         result_text += "\n"
         
     await bot.send_message(chat_id, result_text)
