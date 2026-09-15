@@ -40,7 +40,7 @@ def update_user_stats(user_id, name, score_delta, is_winner):
     save_db(db)
 
 # Cards
-SUITS = ['♠\ufe0f', '♥\ufe0f', '♣\ufe0f', '♦\ufe0f']
+SUITS = ['♠️', '♥️', '♣️', '♦️']
 RANKS = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A']
 RANK_VALUES = {r: i+2 for i, r in enumerate(RANKS)}
 
