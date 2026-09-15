@@ -129,28 +129,75 @@ def get_royalty(hand_tuple, position):
 games = {} # chat_id -> game session dict
 arrange_sessions = {} # user_id -> arrange state dict
 
+def generate_arrange_text(session):
+    cards = session["cards"]
+    atas_cards = [cards[i] for i in session["atas"]]
+    tengah_cards = [cards[i] for i in session["tengah"]]
+    bawah_cards = [cards[i] for i in session["bawah"]]
+    
+    atas_str = " ".join([str(c) for c in atas_cards]) or "-"
+    tengah_str = " ".join([str(c) for c in tengah_cards]) or "-"
+    bawah_str = " ".join([str(c) for c in bawah_cards]) or "-"
+    
+    active_row_name = session["active_row"].capitalize()
+    
+    text = (f"🎴 <b>Susun Kartumu!</b>\n\n"
+            f"🔼 <b>Atas (3):</b> {atas_str}\n"
+            f"▶️ <b>Tengah (5):</b> {tengah_str}\n"
+            f"🔽 <b>Bawah (5):</b> {bawah_str}\n\n"
+            f"Sedang mengisi baris: <b>{active_row_name}</b>\n"
+            f"<i>Pilih baris dengan tombol di bawah, lalu klik kartu untuk mengisi.</i>")
+            
+    if len(atas_cards) == 3 and len(tengah_cards) == 5 and len(bawah_cards) == 5:
+        front_eval = evaluate_hand(atas_cards)
+        middle_eval = evaluate_hand(tengah_cards)
+        back_eval = evaluate_hand(bawah_cards)
+        
+        is_pao = back_eval < middle_eval or middle_eval < front_eval
+        
+        text += "\n\n<b>--- EVALUASI SEMENTARA ---</b>\n"
+        text += f"Atas: {get_hand_name(front_eval)}\n"
+        text += f"Tengah: {get_hand_name(middle_eval)}\n"
+        text += f"Bawah: {get_hand_name(back_eval)}\n"
+        
+        if is_pao:
+            text += "\n⚠️ <b>STATUS: PAO!</b> (Susunan Salah)\n"
+            text += "<i>Pastikan kombinasi Bawah >= Tengah >= Atas. Jika dikunci, Anda otomatis kalah!</i>"
+        else:
+            text += "\n✅ <b>STATUS: AMAN</b> (Susunan Benar)\n"
+            text += "<i>Silakan klik Kunci Susunan jika sudah yakin.</i>"
+            
+    return text
+
 def build_arrange_keyboard(user_id):
     session = arrange_sessions.get(user_id)
     if not session:
         return None
         
     cards = session["cards"]
-    selected = session["selected"]
-    stage = session["stage"] # "front", "middle", "back", "done"
+    atas = session["atas"]
+    tengah = session["tengah"]
+    bawah = session["bawah"]
+    active_row = session["active_row"]
+    
+    placed = set(atas + tengah + bawah)
     
     kb = []
+    
+    # Row selection buttons
+    row_btns = []
+    for r in ["atas", "tengah", "bawah"]:
+        text = f"{'✅ ' if active_row == r else ''}{r.capitalize()}"
+        row_btns.append(InlineKeyboardButton(text=text, callback_data=f"arrange_row_{r}"))
+    kb.append(row_btns)
+    
+    # Card buttons (only unplaced)
+    unplaced_indices = [i for i in range(13) if i not in placed]
+    
     row = []
-    for i, c in enumerate(cards):
-        text = f"{c}"
-        if i in selected:
-            if i in selected[:3]:
-                text = f"1️⃣ {c}"
-            elif i in selected[3:8]:
-                text = f"2️⃣ {c}"
-            else:
-                text = f"3️⃣ {c}"
-            
-        btn = InlineKeyboardButton(text=text, callback_data=f"arrange_{i}")
+    for i in unplaced_indices:
+        text = str(cards[i])
+        btn = InlineKeyboardButton(text=text, callback_data=f"arrange_card_{i}")
         row.append(btn)
         if len(row) == 4:
             kb.append(row)
@@ -160,10 +207,9 @@ def build_arrange_keyboard(user_id):
         
     # Control buttons
     control_row = []
-    if stage != "done":
-        control_row.append(InlineKeyboardButton(text="🔄 Ulangi", callback_data="arrange_reset"))
-    else:
-        control_row.append(InlineKeyboardButton(text="🔄 Ulangi", callback_data="arrange_reset"))
+    control_row.append(InlineKeyboardButton(text="🔄 Reset Semua", callback_data="arrange_reset"))
+    
+    if len(placed) == 13:
         control_row.append(InlineKeyboardButton(text="✅ Kunci Susunan", callback_data="arrange_confirm"))
         
     kb.append(control_row)
@@ -328,11 +374,13 @@ async def cmd_start_pm(msg: Message):
         arrange_sessions[msg.from_user.id] = {
             "chat_id": chat_id,
             "cards": player["cards"],
-            "selected": [],
-            "stage": "front"
+            "atas": [],
+            "tengah": [],
+            "bawah": [],
+            "active_row": "bawah"
         }
         
-        text = "🎴 <b>Susun Kartumu!</b>\n\nSilakan pilih <b>3 kartu</b> untuk baris <b>Atas</b>."
+        text = generate_arrange_text(arrange_sessions[msg.from_user.id])
         await msg.answer(text, reply_markup=build_arrange_keyboard(msg.from_user.id))
 
 @router.message(Command("finish"))
@@ -391,25 +439,25 @@ async def cb_arrange(query: CallbackQuery):
         return
         
     if data == "arrange_reset":
-        session["selected"] = []
-        session["stage"] = "front"
+        session["atas"] = []
+        session["tengah"] = []
+        session["bawah"] = []
+        session["active_row"] = "bawah"
         
-        text = "🎴 <b>Susun Kartumu!</b>\n\nSilakan pilih <b>3 kartu</b> untuk baris <b>Atas</b>."
-        await query.message.edit_text(text, reply_markup=build_arrange_keyboard(user_id))
+        await query.message.edit_text(generate_arrange_text(session), reply_markup=build_arrange_keyboard(user_id))
         await query.answer("Direset!")
         return
         
     if data == "arrange_confirm":
-        if session["stage"] != "done":
+        if len(session["atas"]) + len(session["tengah"]) + len(session["bawah"]) != 13:
             await query.answer("Susun semua kartu dulu!", show_alert=True)
             return
             
         # evaluate and lock
-        indices = session["selected"]
         cards = session["cards"]
-        front_cards = [cards[i] for i in indices[0:3]]
-        middle_cards = [cards[i] for i in indices[3:8]]
-        back_cards = [cards[i] for i in indices[8:13]]
+        front_cards = [cards[i] for i in session["atas"]]
+        middle_cards = [cards[i] for i in session["tengah"]]
+        back_cards = [cards[i] for i in session["bawah"]]
         
         front_eval = evaluate_hand(front_cards)
         middle_eval = evaluate_hand(middle_cards)
@@ -451,43 +499,42 @@ async def cb_arrange(query: CallbackQuery):
             
         return
 
-    # Handle card click
-    try:
-        idx = int(data.split("_")[1])
-    except:
+    if data.startswith("arrange_row_"):
+        row = data.split("_")[2]
+        session["active_row"] = row
+        await query.message.edit_text(generate_arrange_text(session), reply_markup=build_arrange_keyboard(user_id))
+        await query.answer(f"Mengisi baris {row.capitalize()}")
         return
         
-    if idx in session["selected"]:
-        await query.answer("Kartu sudah dipilih!", show_alert=True)
+    if data.startswith("arrange_card_"):
+        try:
+            idx = int(data.split("_")[2])
+        except:
+            return
+            
+        active = session["active_row"]
+        limit = 3 if active == "atas" else 5
+        
+        if len(session[active]) >= limit:
+            await query.answer(f"Baris {active.capitalize()} sudah penuh!", show_alert=True)
+            return
+            
+        session[active].append(idx)
+        
+        # Auto-switch to next empty row if current is full
+        if len(session[active]) == limit:
+            if active == "bawah" and len(session["tengah"]) < 5:
+                session["active_row"] = "tengah"
+            elif active == "tengah" and len(session["atas"]) < 3:
+                session["active_row"] = "atas"
+            elif active == "atas" and len(session["tengah"]) < 5:
+                session["active_row"] = "tengah"
+            elif active == "bawah" and len(session["atas"]) < 3:
+                session["active_row"] = "atas"
+                
+        await query.message.edit_text(generate_arrange_text(session), reply_markup=build_arrange_keyboard(user_id))
+        await query.answer()
         return
-        
-    if session["stage"] == "done":
-        await query.answer("Semua kartu sudah tersusun. Klik Konfirmasi atau Ulangi.", show_alert=True)
-        return
-        
-    session["selected"].append(idx)
-    
-    # Check stages
-    if len(session["selected"]) == 3 and session["stage"] == "front":
-        session["stage"] = "middle"
-    elif len(session["selected"]) == 8 and session["stage"] == "middle":
-        # auto fill the rest
-        remaining = [i for i in range(13) if i not in session["selected"]]
-        session["selected"].extend(remaining)
-        session["stage"] = "done"
-        
-    # Update text
-    stage = session["stage"]
-    text = "🎴 <b>Susun Kartumu!</b>\n\n"
-    if stage == "front":
-        text += f"Silakan pilih <b>{3 - len(session['selected'])} kartu</b> lagi untuk baris <b>Atas</b>."
-    elif stage == "middle":
-        text += f"Atas sudah terpilih (3 kartu).\nSilakan pilih <b>{8 - len(session['selected'])} kartu</b> lagi untuk baris <b>Tengah</b>."
-    elif stage == "done":
-        text += "Semua baris sudah tersusun!\nPeriksa kembali susunanmu sebelum mengunci."
-        
-    await query.message.edit_text(text, reply_markup=build_arrange_keyboard(user_id))
-    await query.answer()
 
 async def calculate_and_announce_results(chat_id):
     game = games[chat_id]
