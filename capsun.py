@@ -40,7 +40,7 @@ def update_user_stats(user_id, name, score_delta, is_winner):
     save_db(db)
 
 # Cards
-SUITS = ['♠', '♥', '♣', '♦']
+SUITS = ['♠\ufe0f', '♥\ufe0f', '♣\ufe0f', '♦\ufe0f']
 RANKS = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A']
 RANK_VALUES = {r: i+2 for i, r in enumerate(RANKS)}
 
@@ -662,9 +662,14 @@ async def calculate_and_announce_results(chat_id):
         result_text += f"👤 <b>{p['name']}</b>{pao_text}: {score} poin{extra_str}\n"
         
         arr = p["arranged"]
-        front_str = " ".join([str(c) for c in arr["front"]])
-        middle_str = " ".join([str(c) for c in arr["middle"]])
-        back_str = " ".join([str(c) for c in arr["back"]])
+        
+        front_sorted = sorted(arr["front"], key=lambda c: c.value, reverse=True)
+        middle_sorted = sorted(arr["middle"], key=lambda c: c.value, reverse=True)
+        back_sorted = sorted(arr["back"], key=lambda c: c.value, reverse=True)
+        
+        front_str = " ".join([str(c) for c in front_sorted])
+        middle_str = " ".join([str(c) for c in middle_sorted])
+        back_str = " ".join([str(c) for c in back_sorted])
         
         if not p["pao"]:
             result_text += f"  A: {front_str} ({get_hand_name(arr['front_eval'])}) [<b>{bd['atas']:+}</b>]\n"
