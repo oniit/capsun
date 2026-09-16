@@ -239,6 +239,62 @@ async def cmd_capsun(msg: Message):
     ])
     
     await msg.answer("🃏 <b>Game Capsa Susun dibuka!</b>\nMinimal 2 pemain, maksimal 4 pemain.", reply_markup=kb)
+    asyncio.create_task(wait_timer(chat_id))
+
+async def wait_timer(chat_id):
+    for _ in range(6):
+        await asyncio.sleep(10)
+        if chat_id not in games or games[chat_id]["state"] != "waiting": return
+    await bot.send_message(chat_id, "⏳ Waktu tunggu tersisa 2 menit.")
+    
+    for _ in range(6):
+        await asyncio.sleep(10)
+        if chat_id not in games or games[chat_id]["state"] != "waiting": return
+    await bot.send_message(chat_id, "⏳ Waktu tunggu tersisa 1 menit.")
+    
+    for _ in range(3):
+        await asyncio.sleep(10)
+        if chat_id not in games or games[chat_id]["state"] != "waiting": return
+    await bot.send_message(chat_id, "⏳ Waktu tunggu tersisa 30 detik.")
+    
+    for _ in range(3):
+        await asyncio.sleep(10)
+        if chat_id not in games or games[chat_id]["state"] != "waiting": return
+        
+    game = games[chat_id]
+    if len(game["players"]) >= 2:
+        await bot.send_message(chat_id, "⏳ Waktu tunggu habis. Game otomatis dimulai!")
+        await start_game_logic(chat_id)
+    else:
+        await bot.send_message(chat_id, "⏳ Waktu tunggu habis, tapi pemain kurang dari 2. Game dibatalkan.")
+        del games[chat_id]
+
+async def start_game_logic(chat_id):
+    if chat_id not in games or games[chat_id]["state"] != "waiting":
+        return
+        
+    game = games[chat_id]
+    if len(game["players"]) < 2:
+        return
+        
+    game["state"] = "playing"
+    deck = create_deck()
+    
+    for uid, player in game["players"].items():
+        player["cards"] = deck[:13]
+        deck = deck[13:]
+        
+    bot_info = await bot.me()
+    enc_chat_id = str(chat_id).replace("-", "M")
+    
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Susun Kartu (PM)", url=f"https://t.me/{bot_info.username}?start=capsun_{enc_chat_id}")]
+    ])
+    
+    mentions = ", ".join([f"<a href='tg://user?id={uid}'>{p['name']}</a>" for uid, p in game["players"].items()])
+    await bot.send_message(chat_id, f"🃏 <b>Game Dimulai!</b>\nKartu sudah dibagikan ke {mentions}.\nSilahkan klik tombol di bawah untuk menyusun di PM bot.\n\n⏳ Waktu menyusun: 17 menit.", reply_markup=kb)
+    
+    asyncio.create_task(game_timer(chat_id))
 
 @router.callback_query(F.data == "capsun_join")
 async def cb_join(query: CallbackQuery):
@@ -279,6 +335,10 @@ async def cb_join(query: CallbackQuery):
         reply_markup=kb
     )
     await query.answer("Berhasil join!")
+    
+    if len(game["players"]) == 4:
+        await bot.send_message(chat_id, "✅ Pemain sudah penuh (4 orang). Game otomatis dimulai!")
+        await start_game_logic(chat_id)
 
 @router.callback_query(F.data == "capsun_start")
 async def cb_start(query: CallbackQuery):
@@ -299,51 +359,71 @@ async def cb_start(query: CallbackQuery):
         await query.answer("Hanya pembuat game yang bisa start!", show_alert=True)
         return
 
-    game["state"] = "playing"
-    
-    deck = create_deck()
-    
-    for uid, player in game["players"].items():
-        player["cards"] = deck[:13]
-        deck = deck[13:]
-        
-    bot_info = await bot.me()
-    
-    enc_chat_id = str(chat_id).replace("-", "M")
-    
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Susun Kartu (PM)", url=f"https://t.me/{bot_info.username}?start=capsun_{enc_chat_id}")]
-    ])
-    
-    mentions = ", ".join([f"<a href='tg://user?id={uid}'>{p['name']}</a>" for uid, p in game["players"].items()])
-    await query.message.answer(f"Kartu sudah dibagikan ke {mentions}.\nSilahkan klik tombol di bawah untuk menyusun di PM bot.", reply_markup=kb)
-
-    await query.message.edit_text(query.message.text + "\n\n<b>Game Dimulai!</b> Waktu menyusun: 17 menit.")
-    await query.answer("Game Dimulai!")
-    asyncio.create_task(game_timer(chat_id))
+    await query.message.edit_text(query.message.text + "\n\n<i>Game dimulai oleh pembuat...</i>")
+    await query.answer("Memulai game...")
+    await start_game_logic(chat_id)
 
 async def game_timer(chat_id):
-    await asyncio.sleep(1020)  # 17 minutes
-    if chat_id in games and games[chat_id]["state"] == "playing":
-        game = games[chat_id]
-        all_finished = all(p.get("finished", False) for p in game["players"].values())
-        if not all_finished:
-            await bot.send_message(chat_id, "⏳ Waktu habis (17 menit)! Pemain yang belum /finish otomatis PAO/dikunci.")
-            for uid, p in game["players"].items():
-                if not p.get("finished", False):
-                    if p["arranged"] is None:
-                        dummy_cards = p["cards"]
-                        p["arranged"] = {
-                            "front": dummy_cards[0:3],
-                            "middle": dummy_cards[3:8],
-                            "back": dummy_cards[8:13],
-                            "front_eval": evaluate_hand(dummy_cards[0:3]),
-                            "middle_eval": evaluate_hand(dummy_cards[3:8]),
-                            "back_eval": evaluate_hand(dummy_cards[8:13])
-                        }
-                        p["pao"] = True
-                    p["finished"] = True
-            await calculate_and_announce_results(chat_id)
+    # Wait 12 minutes (720 seconds) for 5-minute warning
+    for _ in range(72):
+        await asyncio.sleep(10)
+        if chat_id not in games or games[chat_id]["state"] != "playing": return
+        
+    unfinished = [uid for uid, p in games[chat_id]["players"].items() if not p.get("finished", False)]
+    if unfinished:
+        await bot.send_message(chat_id, "⏳ Waktu menyusun tersisa 5 menit!")
+        for uid in unfinished:
+            try: await bot.send_message(uid, "⏳ Waktu menyusun tersisa 5 menit! Segera selesaikan susunanmu.")
+            except: pass
+
+    # Wait 2 minutes (120 seconds) for 3-minute warning
+    for _ in range(12):
+        await asyncio.sleep(10)
+        if chat_id not in games or games[chat_id]["state"] != "playing": return
+        
+    unfinished = [uid for uid, p in games[chat_id]["players"].items() if not p.get("finished", False)]
+    if unfinished:
+        await bot.send_message(chat_id, "⏳ Waktu menyusun tersisa 3 menit!")
+        for uid in unfinished:
+            try: await bot.send_message(uid, "⏳ Waktu menyusun tersisa 3 menit! Segera selesaikan susunanmu.")
+            except: pass
+            
+    # Wait 2 minutes (120 seconds) for 1-minute warning
+    for _ in range(12):
+        await asyncio.sleep(10)
+        if chat_id not in games or games[chat_id]["state"] != "playing": return
+        
+    unfinished = [uid for uid, p in games[chat_id]["players"].items() if not p.get("finished", False)]
+    if unfinished:
+        await bot.send_message(chat_id, "⏳ Waktu menyusun tersisa 1 menit!")
+        for uid in unfinished:
+            try: await bot.send_message(uid, "⏳ Waktu menyusun tersisa 1 menit! Segera selesaikan susunanmu sebelum di-PAO otomatis.")
+            except: pass
+            
+    # Wait 1 minute (60 seconds) for timeout
+    for _ in range(6):
+        await asyncio.sleep(10)
+        if chat_id not in games or games[chat_id]["state"] != "playing": return
+
+    game = games[chat_id]
+    all_finished = all(p.get("finished", False) for p in game["players"].values())
+    if not all_finished:
+        await bot.send_message(chat_id, "⏳ Waktu habis (17 menit)! Pemain yang belum /finish otomatis PAO/dikunci.")
+        for uid, p in game["players"].items():
+            if not p.get("finished", False):
+                if p["arranged"] is None:
+                    dummy_cards = p["cards"]
+                    p["arranged"] = {
+                        "front": dummy_cards[0:3],
+                        "middle": dummy_cards[3:8],
+                        "back": dummy_cards[8:13],
+                        "front_eval": evaluate_hand(dummy_cards[0:3]),
+                        "middle_eval": evaluate_hand(dummy_cards[3:8]),
+                        "back_eval": evaluate_hand(dummy_cards[8:13])
+                    }
+                    p["pao"] = True
+                p["finished"] = True
+        await calculate_and_announce_results(chat_id)
 
 @router.message(Command("start"))
 async def cmd_start_pm(msg: Message):
